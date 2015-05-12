@@ -1,0 +1,23 @@
+add to ~/.ssh/config:
+
+```
+Host *.compute-1.amazonaws.com
+    IdentityFile /Users/droberts/dimagi/experiments/ec2buildserver/build.pem
+```
+
+
+to bootstrap an AMI:
+
+# in ec2buildserver
+echo '[buildserver]' > buildservers
+python main.py status --dns >> buildservers
+
+# in ansible dir
+ansible-playbook -i /path/to/buildservers deploy_buildservers.yml -vvvv --skip-tags=node_installs
+
+# in ec2buildserver
+fab -H $(python main.py status --dns) first_time_setup install
+
+
+then manually create an image in AWS web ui
+(I added tag app=buildeserver, but that's probably not necessary as it's done in main.py)
