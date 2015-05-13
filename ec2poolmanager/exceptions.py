@@ -1,0 +1,2 @@
+class NoMatchingStoppedInstances(Exception):
+    pass
