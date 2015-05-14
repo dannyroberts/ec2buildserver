@@ -1,4 +1,4 @@
-from fabric.api import env, sudo, run, settings, prefix, cd
+from fabric.api import env, sudo, run, prefix, cd
 import settings as ec2_settings
 
 env.user = 'ubuntu'

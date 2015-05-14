@@ -2,3 +2,4 @@
 credentials.csv
 *.pem
 settings.py
+log/

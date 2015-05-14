@@ -1,3 +1,10 @@
+import collections
+from gevent import monkey;
+import itertools
+import gevent
+import time
+
+monkey.patch_all(subprocess=True)
 from collections import namedtuple
 import boto.ec2
 from .exceptions import NoMatchingStoppedInstances
@@ -23,6 +30,12 @@ class Worker(object):
             state_code=instance.state_code,
             dns_name=instance.dns_name,
         )
+
+    def update(self, instance):
+        self.id = instance.id
+        self.state = instance.state
+        self.state_code = instance.state_code
+        self.dns_name = instance.dns_name
 
 
 class EC2(object):
@@ -90,3 +103,63 @@ class EC2(object):
                 [started_instance] = self.connection.start_instances(instance.id)
                 return Worker.from_boto(started_instance)
         raise NoMatchingStoppedInstances()
+
+
+class Pool(object):
+    def __init__(self, ec2, worker_spec, max_workers, tags):
+        self.ec2 = ec2
+        self.worker_spec = worker_spec
+        self.max_workers = max_workers
+        self.tags = tags
+        self.callback = []
+        # ids to worker_objects
+        self.known_workers = {}
+        # deque of worker objects
+        self.free_workers = collections.deque()
+
+    def free_worker(self, worker):
+        self.free_workers.append(worker)
+
+    def scan_for_workers(self):
+        if self.known_workers:
+            return
+        print 'Scanning for workers'
+        workers = self.ec2.get_all_instances(tags=self.tags)
+        for worker in workers:
+            if worker.state == 'running':
+                if worker.id in self.known_workers:
+                    self.known_workers[worker.id].update(worker)
+                else:
+                    self.known_workers[worker.id] = worker
+                    self.free_workers.append(worker)
+
+    def iter_workers(self):
+        while True:
+            try:
+                yield self.free_workers.popleft()
+            except IndexError:
+                time.sleep(1)
+                self.scan_for_workers()
+
+
+class Group(object):
+
+    def __init__(self, pool):
+        self.pool = pool
+        self.callbacks = []
+
+    def _run_job(self, i, worker, callback):
+        try:
+            return i, callback(worker.dns_name)
+        finally:
+            self.pool.free_worker(worker)
+
+    def add(self, callback):
+        self.callbacks.append(callback)
+
+    def join(self):
+        jobs = []
+        for i, (worker, callback) in enumerate(
+                itertools.izip(self.pool.iter_workers(), self.callbacks)):
+            jobs.append(gevent.spawn(self._run_job, i, worker, callback))
+        gevent.joinall(jobs)
